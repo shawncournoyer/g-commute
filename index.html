@@ -49,7 +49,7 @@
 </head>
 <body>
 
-<div id="clip" class="hide"><iframe id="app" title="G Commute"></iframe></div>
+<div id="clip" class="hide"><iframe id="app" title="G Commute" allow="geolocation"></iframe></div>
 
 <div id="tune" class="hide">
   <div id="tunetip">
@@ -239,6 +239,27 @@ document.getElementById('form').addEventListener('submit', function (ev) {
     show(); size();
   });
 })();
+
+/* GPS bridge, the same one Wheredyapark's wrapper runs. Chrome blocks
+   geolocation inside Apps Script's sandboxed, cross-origin frames, and Google
+   builds those frames so we cannot add allow="geolocation" to them. This page
+   is top level on our own HTTPS origin, where the browser API works. The app
+   posts {gc:'geo-req'} to window.top for "Walk to Carroll St"; we ack straight
+   away (so it knows the bridge exists and waits for the permission prompt)
+   and then reply with the fix. Only frames served by Google's Apps Script
+   sandbox are answered. */
+addEventListener('message', function (ev) {
+  var d = ev.data;
+  if (!d || d.gc !== 'geo-req' || !ev.source) return;
+  if (!/\.googleusercontent\.com$|^https:\/\/script\.google\.com$/.test(ev.origin)) return;
+  var reply = function (m) { try { ev.source.postMessage(m, ev.origin); } catch (e) {} };
+  reply({ gc: 'geo-ack' });
+  if (!navigator.geolocation) { reply({ gc: 'geo', ok: false, err: 'No GPS in this browser' }); return; }
+  navigator.geolocation.getCurrentPosition(
+    function (p) { reply({ gc: 'geo', ok: true, lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }); },
+    function (e) { reply({ gc: 'geo', ok: false, err: e.code === 1 ? 'Location permission is off for this app' : (e.message || 'No location') }); },
+    { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 });
+});
 
 addEventListener('resize', size);
 addEventListener('orientationchange', function () { setTimeout(size, 150); });
